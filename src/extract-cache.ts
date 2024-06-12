@@ -6,7 +6,7 @@ import { run, runPiped } from './run.js';
 async function extractCache(cacheSource: string, cacheOptions: CacheOptions, scratchDir: string) {
     // Prepare Timestamp for Layer Cache Busting
     const date = new Date().toISOString();
-    
+
     await fs.mkdir(scratchDir, { recursive: true });
     await fs.writeFile(path.join(scratchDir, 'buildstamp'), date);
 
@@ -19,7 +19,7 @@ FROM busybox:1
 COPY buildstamp buildstamp
 RUN --mount=${mountArgs} \
     mkdir -p /var/dance-cache/ \
-    && cp -p -R ${targetPath}/. /var/dance-cache/ || true
+    && cp -p -R ${targetPath}/. /var/dance-cache/ && ls -al /var/dance-cache/ && ls -al ${targetPath}
 `;
     await fs.writeFile(path.join(scratchDir, 'Dancefile.extract'), dancefileContent);
     console.log(dancefileContent);
