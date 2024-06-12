@@ -1342,13 +1342,11 @@ async function $8d40300f3635b768$var$extractCache(cacheSource, cacheOptions, scr
     const dancefileContent = `
 FROM busybox:1
 COPY buildstamp buildstamp
-RUN --mount=${mountArgs} \
-    mkdir -p /var/dance-cache/ \
-    && cp -p -R ${targetPath}/. /var/dance-cache/ && ls -al /var/dance-cache/ && ls -al ${targetPath}
+RUN --mount=${mountArgs} ls -al ${targetPath} && cp -p -R ${targetPath} /var/dance-cache/
 `;
     await (0, $evV72$fspromises).writeFile((0, $evV72$path).join(scratchDir, "Dancefile.extract"), dancefileContent);
     console.log(dancefileContent);
-    // Extract Data into Docker Image
+    // Build an image containing a tarball of the cache.
     await (0, $4c028fad90f63861$export$889ea624f2cb2c57)("docker", [
         "buildx",
         "build",
@@ -1359,48 +1357,42 @@ RUN --mount=${mountArgs} \
         "--load",
         scratchDir
     ]);
-    // Create Extraction Image
-    try {
-        await (0, $4c028fad90f63861$export$889ea624f2cb2c57)("docker", [
-            "rm",
-            "-f",
-            "cache-container"
-        ]);
-    } catch (error) {
-    // Ignore error if container does not exist
-    }
-    await (0, $4c028fad90f63861$export$889ea624f2cb2c57)("docker", [
-        "create",
-        "-ti",
-        "--name",
-        "cache-container",
-        "dance:extract"
-    ]);
-    // Unpack Docker Image into Scratch
-    await (0, $4c028fad90f63861$export$214213e2e11c62ae)([
-        "docker",
-        [
-            "cp",
-            "-L",
-            "cache-container:/var/dance-cache",
-            "-"
-        ]
-    ], [
-        "tar",
-        [
-            "-H",
-            "posix",
-            "-x",
-            "-C",
-            scratchDir
-        ]
-    ]);
-    // Move Cache into Its Place
+    // Extract the folder from the image.
     await (0, $evV72$fspromises).rm(cacheSource, {
         recursive: true,
         force: true
     });
-    await (0, $evV72$fspromises).rename((0, $evV72$path).join(scratchDir, "dance-cache"), cacheSource);
+    await (0, $evV72$fspromises).mkdir(cacheSource, {
+        recursive: true
+    });
+    await (0, $4c028fad90f63861$export$889ea624f2cb2c57)("docker", [
+        "run",
+        "-v",
+        `${cacheSource}:/opt/mount`,
+        "--rm",
+        "--entrypoint",
+        "cp",
+        "dance:extract",
+        "-p",
+        "-R",
+        "/var/dance-cache/",
+        "/opt/mount/"
+    ]);
+    // Check if the cache is empty. If it is, remove the directory.
+    const cacheFiles = await (0, $evV72$fspromises).readdir(cacheSource);
+    if (cacheFiles.length === 0) {
+        console.log("Cache is empty. Removing to prevent cache upload.");
+        await (0, $evV72$fspromises).rm(cacheSource, {
+            recursive: true,
+            force: true
+        });
+    } else {
+        console.log("Cache extracted successfully. Contents:");
+        await (0, $4c028fad90f63861$export$889ea624f2cb2c57)("ls", [
+            "-al",
+            cacheSource
+        ]);
+    }
 }
 async function $8d40300f3635b768$export$bd3cfa0c41fc7012(opts) {
     if (opts["skip-extraction"]) {

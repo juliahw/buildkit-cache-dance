@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { CacheOptions, Opts, getCacheMap, getMountArgsString, getTargetPath } from './opts.js';
-import { run, runPiped } from './run.js';
+import { run } from './run.js';
 
 async function extractCache(cacheSource: string, cacheOptions: CacheOptions, scratchDir: string) {
     // Prepare Timestamp for Layer Cache Busting
@@ -17,33 +17,28 @@ async function extractCache(cacheSource: string, cacheOptions: CacheOptions, scr
     const dancefileContent = `
 FROM busybox:1
 COPY buildstamp buildstamp
-RUN --mount=${mountArgs} \
-    mkdir -p /var/dance-cache/ \
-    && cp -p -R ${targetPath}/. /var/dance-cache/ && ls -al /var/dance-cache/ && ls -al ${targetPath}
+RUN --mount=${mountArgs} ls -al ${targetPath} && cp -p -R ${targetPath} /var/dance-cache/
 `;
     await fs.writeFile(path.join(scratchDir, 'Dancefile.extract'), dancefileContent);
     console.log(dancefileContent);
 
-    // Extract Data into Docker Image
+    // Build an image containing a tarball of the cache.
     await run('docker', ['buildx', 'build', '-f', path.join(scratchDir, 'Dancefile.extract'), '--tag', 'dance:extract', '--load', scratchDir]);
 
-    // Create Extraction Image
-    try {
-        await run('docker', ['rm', '-f', 'cache-container']);
-    } catch (error) {
-        // Ignore error if container does not exist
-    }
-    await run('docker', ['create', '-ti', '--name', 'cache-container', 'dance:extract']);
-
-    // Unpack Docker Image into Scratch
-    await runPiped(
-        ['docker', ['cp', '-L', 'cache-container:/var/dance-cache', '-']],
-        ['tar', ['-H', 'posix', '-x', '-C', scratchDir]]
-    );
-
-    // Move Cache into Its Place
+    // Extract the folder from the image.
     await fs.rm(cacheSource, { recursive: true, force: true });
-    await fs.rename(path.join(scratchDir, 'dance-cache'), cacheSource);
+    await fs.mkdir(cacheSource, { recursive: true });
+    await run('docker', ['run', '-v', `${cacheSource}:/opt/mount`, '--rm', '--entrypoint', 'cp', 'dance:extract', '-p', '-R', '/var/dance-cache/', '/opt/mount/']);
+
+    // Check if the cache is empty. If it is, remove the directory.
+    const cacheFiles = await fs.readdir(cacheSource);
+    if (cacheFiles.length === 0) {
+        console.log('Cache is empty. Removing to prevent cache upload.')
+        await fs.rm(cacheSource, { recursive: true, force: true });
+    } else {
+        console.log('Cache extracted successfully. Contents:')
+        await run('ls', ['-al', cacheSource]);
+    }
 }
 
 export async function extractCaches(opts: Opts) {
